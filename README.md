@@ -117,6 +117,12 @@ The runner reads each local `config.json` and supports:
 This covers the tested Qwen, DeepSeek-R1-Distill-Qwen, HuatuoGPT, Morpheus,
 gpt-oss, MedGemma text, and Fleming-R1 checkpoints.
 
+GPT-OSS MXFP4 inference requires the compatible dependency pair declared in
+`requirements.txt` (`transformers>=5.14,<5.15` and
+`kernels>=0.15.2,<0.16.0`). The runner rejects missing or incompatible kernels
+instead of falling back to BF16 dequantization. The first load may fetch signed
+MXFP4 kernel artifacts from Hugging Face, so warm the cache before offline use.
+
 ## Output
 
 Default outputs are:
@@ -132,8 +138,11 @@ reasoning-channel removal, eight named sections, `prediction.b1` through
 and truncation status. A neighboring `.config.json` records generation
 settings and the prompt SHA-256.
 
-Existing usable rows are skipped on rerun. Invalid responses and errors are
-retried unless `--no-retry-errors` is specified.
+Existing `ok` and `invalid_response` rows are skipped on rerun; only inference
+errors are retried unless `--no-retry-errors` is specified. Outputs are
+atomically rewritten after every batch in dataset order with only the latest
+record for each `qa_id`, so a completed full B5 run contains exactly 500 rows.
+
 
 ## Tests
 

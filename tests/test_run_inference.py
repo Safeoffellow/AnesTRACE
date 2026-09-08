@@ -433,23 +433,6 @@ class LevelTwoRunnerTests(unittest.TestCase):
         self.assertIsNone(parsed.prediction)
         self.assertIn("before the first heading", parsed.prediction_error)
 
-    def test_resume_uses_latest_strictly_valid_status(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "predictions.jsonl"
-            rows = [
-                {"qa_id": "q1", "status": "error"},
-                {"qa_id": "q1", "status": "ok", "response_format_valid": True},
-                {"qa_id": "q2", "status": "ok", "response_format_valid": False},
-            ]
-            path.write_text(
-                "".join(json.dumps(row) + "\n" for row in rows),
-                encoding="utf-8",
-            )
-            self.assertEqual(
-                runner.load_previous_statuses(path),
-                {"q1": "ok", "q2": "invalid_response"},
-            )
-
     def test_run_one_sends_no_media_and_maps_all_sections(self):
         class FakeFrontend:
             model_type = "qwen3"
@@ -484,6 +467,53 @@ class LevelTwoRunnerTests(unittest.TestCase):
         self.assertFalse(result["media_included"])
         self.assertEqual(result["language"], "zh")
         self.assertEqual(set(result["prediction"]), {"b1", "b2", "b3", "b4"})
+
+    def test_resume_retries_only_latest_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "predictions.jsonl"
+            rows = [
+                {"qa_id": "q1", "status": "error"},
+                {"qa_id": "q1", "status": "invalid_response"},
+                {"qa_id": "q2", "status": "error"},
+                {"qa_id": "q3", "status": "ok", "response_format_valid": False},
+            ]
+            path.write_text(
+                "".join(json.dumps(row) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            statuses = runner.load_previous_statuses(path)
+            self.assertEqual(
+                statuses,
+                {"q1": "invalid_response", "q2": "error", "q3": "ok"},
+            )
+            self.assertEqual(
+                runner.completed_qa_ids(statuses, retry_errors=True),
+                {"q1", "q3"},
+            )
+            self.assertEqual(
+                runner.completed_qa_ids(statuses, retry_errors=False),
+                {"q1", "q2", "q3"},
+            )
+
+    def test_atomic_latest_result_rewrite_deduplicates_in_dataset_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "predictions.jsonl"
+            rows = [
+                {"qa_id": "q2", "status": "error", "attempt": 1},
+                {"qa_id": "q1", "status": "invalid_response"},
+                {"qa_id": "q2", "status": "ok", "attempt": 2},
+                {"qa_id": "foreign", "status": "ok"},
+            ]
+            path.write_text(
+                "".join(json.dumps(row) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            latest = runner.load_latest_results(path, {"q1", "q2", "q3"})
+            runner.write_latest_results(path, latest, ["q1", "q2", "q3"])
+            rewritten = [record for _, record in runner.read_jsonl(path)]
+            self.assertEqual([record["qa_id"] for record in rewritten], ["q1", "q2"])
+            self.assertEqual(rewritten[1]["attempt"], 2)
+            self.assertEqual(len(rewritten), len({row["qa_id"] for row in rewritten}))
 
     def test_run_one_uses_english_parser_and_records_language(self):
         class EnglishFrontend:
@@ -594,6 +624,27 @@ class LevelTwoRunnerTests(unittest.TestCase):
         self.assertTrue(all(result["status"] == "ok" for result in results))
         self.assertEqual([result["batch_size"] for result in results], [2, 2])
         self.assertTrue(all(result["media_included"] is False for result in results))
+
+    def test_gpt_oss_rejects_incompatible_mxfp4_kernels(self):
+        spec = runner.ModelSpec(
+            model_type="gpt_oss",
+            architectures=("GptOssForCausalLM",),
+            frontend_kind="gpt_oss_causal_lm",
+        )
+        with self.assertRaisesRegex(
+            RuntimeError, r"0\.15\.2 <= kernels < 0\.16\.0"
+        ):
+            runner.ensure_gpt_oss_mxfp4_runtime(
+                spec,
+                availability_check=lambda: False,
+                installed_version="0.16.1",
+                minimum_version="0.15.2",
+                maximum_version="0.16.0",
+            )
+        runner.ensure_gpt_oss_mxfp4_runtime(
+            spec,
+            availability_check=lambda: True,
+        )
 
 if __name__ == "__main__":
     unittest.main()

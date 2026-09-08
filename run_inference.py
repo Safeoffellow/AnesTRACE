@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import re
@@ -295,7 +296,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--retry-errors",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Retry errors and invalid responses on resume (default: true).",
+        help="Retry only inference errors on resume; keep format-invalid responses (default: true).",
     )
     args = parser.parse_args(argv)
     if args.input is None:
@@ -533,6 +534,47 @@ def ensure_context_capacity(
         )
 
 
+def ensure_gpt_oss_mxfp4_runtime(
+    spec: ModelSpec,
+    availability_check: Any | None = None,
+    installed_version: str | None = None,
+    minimum_version: str | None = None,
+    maximum_version: str | None = None,
+) -> None:
+    """Reject the unstable BF16 fallback when GPT-OSS MXFP4 kernels are unavailable."""
+    if spec.model_type != "gpt_oss":
+        return
+    if availability_check is None:
+        from transformers.utils import is_kernels_available
+        from transformers.utils.import_utils import (
+            KERNELS_MAX_VERSION,
+            KERNELS_MIN_VERSION,
+        )
+
+        availability_check = is_kernels_available
+        minimum_version = KERNELS_MIN_VERSION
+        maximum_version = KERNELS_MAX_VERSION
+    if availability_check():
+        return
+    if installed_version is None:
+        try:
+            installed_version = importlib.metadata.version("kernels")
+        except importlib.metadata.PackageNotFoundError:
+            installed_version = "not installed"
+    version_window = (
+        f"{minimum_version} <= kernels < {maximum_version}"
+        if minimum_version and maximum_version
+        else "the version range required by the installed Transformers"
+    )
+    raise RuntimeError(
+        "GPT-OSS uses MXFP4 weights and requires a compatible kernels package; "
+        f"found kernels {installed_version}, but Transformers requires {version_window}. "
+        "Refusing the automatic BF16 dequantization fallback because it can fail "
+        "during CUDA weight loading. Install matching versions from the repository "
+        "requirements and retry in a fresh Python process."
+    )
+
+
 def _dtype_value(name: str, torch_module: Any) -> Any:
     if name == "auto":
         return "auto"
@@ -612,6 +654,7 @@ class TransformersTextFrontend:
         self.torch = torch
         self.model_type = spec.model_type
         self.frontend_kind = spec.frontend_kind
+        ensure_gpt_oss_mxfp4_runtime(spec)
         model_path = args.model_path.expanduser().resolve()
         self.assistant_prefill = resolve_assistant_prefill(
             model_path, spec, args.language
@@ -1169,23 +1212,56 @@ def error_result(
     }
 
 
-def append_jsonl(handle: Any, record: dict[str, Any]) -> None:
-    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    handle.flush()
+def load_latest_results(
+    path: Path, allowed_qa_ids: set[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    if not path.exists():
+        return latest
+    for _, record in read_jsonl(path):
+        qa_id = record.get("qa_id")
+        if not isinstance(qa_id, str):
+            continue
+        if allowed_qa_ids is not None and qa_id not in allowed_qa_ids:
+            continue
+        latest[qa_id] = record
+    return latest
+
+
+def write_latest_results(
+    path: Path,
+    latest: dict[str, dict[str, Any]],
+    ordered_qa_ids: list[str],
+) -> None:
+    """Atomically persist at most one, latest result per dataset item."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            for qa_id in ordered_qa_ids:
+                record = latest.get(qa_id)
+                if record is not None:
+                    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def load_previous_statuses(path: Path) -> dict[str, str]:
-    statuses: dict[str, str] = {}
-    if not path.exists():
-        return statuses
-    for _, record in read_jsonl(path):
-        qa_id = record.get("qa_id")
+    statuses = {}
+    for qa_id, record in load_latest_results(path).items():
         status = record.get("status")
-        if isinstance(qa_id, str) and isinstance(status, str):
-            if status == "ok" and record.get("response_format_valid") is not True:
-                status = "invalid_response"
+        if isinstance(status, str):
             statuses[qa_id] = status
     return statuses
+
+
+def completed_qa_ids(statuses: dict[str, str], retry_errors: bool) -> set[str]:
+    if not retry_errors:
+        return set(statuses)
+    return {qa_id for qa_id, status in statuses.items() if status != "error"}
 
 
 def write_run_config(
@@ -1215,6 +1291,8 @@ def write_run_config(
         "input_mode": "text_only",
         "batch_size": args.batch_size,
         "media_included": False,
+        "output_persistence": "latest_per_qa_id_atomic",
+        "retry_policy": "errors_only",
         "max_new_tokens": args.max_new_tokens,
         "dtype": args.dtype,
         "device_map": args.device_map,
@@ -1246,15 +1324,22 @@ def main(argv: list[str] | None = None) -> int:
     args.prompt_template = args.prompt_template.expanduser().resolve()
 
     template, prompt_hash = load_prompt_template(args.prompt_template)
-    items = select_items(load_items(args.input), args)
+    all_items = load_items(args.input)
+    items = select_items(all_items, args)
+    ordered_qa_ids = [item.record["qa_id"] for item in all_items]
+    allowed_qa_ids = set(ordered_qa_ids)
     spec = resolve_model_spec(args.model_path)
     if args.overwrite and args.output.exists():
         args.output.unlink()
-    previous = load_previous_statuses(args.output)
-    if args.retry_errors:
-        completed = {qa_id for qa_id, status in previous.items() if status == "ok"}
-    else:
-        completed = set(previous)
+    latest_results = load_latest_results(args.output, allowed_qa_ids)
+    if args.output.exists():
+        write_latest_results(args.output, latest_results, ordered_qa_ids)
+    previous = {
+        qa_id: record["status"]
+        for qa_id, record in latest_results.items()
+        if isinstance(record.get("status"), str)
+    }
+    completed = completed_qa_ids(previous, args.retry_errors)
     pending = [item for item in items if item.record["qa_id"] not in completed]
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -1282,54 +1367,55 @@ def main(argv: list[str] | None = None) -> int:
     ok_count = 0
     invalid_count = 0
     error_count = 0
-    with args.output.open("a", encoding="utf-8") as handle:
-        progress = tqdm(
-            total=len(pending),
-            desc="AnesTRACE B5",
-            unit="item",
-            dynamic_ncols=True,
+    progress = tqdm(
+        total=len(pending),
+        desc="AnesTRACE B5",
+        unit="item",
+        dynamic_ncols=True,
+    )
+    for start in range(0, len(pending), args.batch_size):
+        batch = pending[start : start + args.batch_size]
+        batch_started = time.perf_counter()
+        try:
+            results = run_many(batch, args, frontend, template, prompt_hash)
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            elapsed_per_item = (time.perf_counter() - batch_started) / len(batch)
+            results = [
+                error_result(
+                    item,
+                    args,
+                    exc,
+                    elapsed_per_item,
+                    spec,
+                    prompt_hash,
+                )
+                for item in batch
+            ]
+        for result in results:
+            if result["status"] == "ok":
+                ok_count += 1
+            elif result["status"] == "error":
+                error_count += 1
+            else:
+                invalid_count += 1
+            latest_results[result["qa_id"]] = result
+        write_latest_results(args.output, latest_results, ordered_qa_ids)
+        progress.update(len(batch))
+        progress.set_postfix(
+            ok=ok_count,
+            invalid=invalid_count,
+            errors=error_count,
+            refresh=False,
         )
-        for start in range(0, len(pending), args.batch_size):
-            batch = pending[start : start + args.batch_size]
-            batch_started = time.perf_counter()
-            try:
-                results = run_many(batch, args, frontend, template, prompt_hash)
-            except KeyboardInterrupt:
-                raise
-            except Exception as exc:
-                elapsed_per_item = (time.perf_counter() - batch_started) / len(batch)
-                results = [
-                    error_result(
-                        item,
-                        args,
-                        exc,
-                        elapsed_per_item,
-                        spec,
-                        prompt_hash,
-                    )
-                    for item in batch
-                ]
-            for result in results:
-                if result["status"] == "ok":
-                    ok_count += 1
-                elif result["status"] == "error":
-                    error_count += 1
-                else:
-                    invalid_count += 1
-                append_jsonl(handle, result)
-            progress.update(len(batch))
-            progress.set_postfix(
-                ok=ok_count,
-                invalid=invalid_count,
-                errors=error_count,
-                refresh=False,
-            )
 
     print(
         f"Finished: ok={ok_count}, invalid={invalid_count}, "
-        f"errors={error_count}, output={args.output}"
+        f"errors={error_count}, total_records={len(latest_results)}, "
+        f"output={args.output}"
     )
-    return 0 if invalid_count == 0 and error_count == 0 else 2
+    return 0 if error_count == 0 else 2
 
 
 if __name__ == "__main__":
