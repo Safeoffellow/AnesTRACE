@@ -1,9 +1,16 @@
 # AnesTRACE
 
-AnesTRACE is a text-only batch inference runner for the Level Two
-`B5_complete_plan` intraoperative anesthesia decision task. It supports
-Chinese and English prompts, strict eight-section response extraction,
-resumable JSONL output, and sequential evaluation of multiple local models.
+AnesTRACE contains two deliberately separate inference tracks for the AnesBench
+intraoperative anesthesia benchmark:
+
+- **Level Two** is the repository-root text-only `B5_complete_plan` runner.
+- **Level Three** is the tool-using, multi-turn LangGraph agent under
+  [`level_three_agent/`](level_three_agent/README.md).
+
+Level Two supports Chinese and English prompts, strict eight-section response
+extraction, resumable JSONL output, and sequential evaluation of local models.
+Level Three is currently English-only and evaluates autonomous case-context
+acquisition, knowledge-tool use, Episode memory, and sequential decisions.
 
 The runner sends only `patient_information` as case-specific model input. It
 does not read or send waveform images, media paths, answers, ground truth,
@@ -11,16 +18,32 @@ review metadata, or sample identifiers.
 
 ## Repository contents
 
-- `run_inference.py`: single-model inference and response extraction.
-- `scripts/run_batch.sh`: sequential multi-model and bilingual runner.
-- `prompts/`: canonical Chinese and English prompt templates.
-- `tests/`: input, parser, routing, resume, and shell orchestration tests.
-- `data/README.md`: expected dataset contract; datasets are not tracked.
+- `run_inference.py`: Level Two single-model inference and extraction.
+- `scripts/run_batch.sh`: Level Two multi-model and bilingual runner.
+- `prompts/`: Level Two Chinese and English prompt templates.
+- `tests/`: Level Two tests.
+- `data/README.md`: Level Two dataset contract.
+- `level_three_agent/`: independent Level Three package, CLI, tools, configs,
+  schema, documentation, and tests.
 
 Checkpoints, clinical datasets, and generated outputs are deliberately
 excluded from version control.
 
-## Installation
+## Which runner should I use?
+
+| | Level Two | Level Three |
+| --- | --- | --- |
+| CLI | `python run_inference.py` | `anestrace-l3` |
+| Input | One B5 patient context | One multi-turn Atomic Episode |
+| Runtime | Transformers | LangGraph + OpenAI-compatible model server |
+| Tools | None | 6 case-context + 4 knowledge tools |
+| Memory | None | Episode-scoped |
+| Language | Chinese or English | English only |
+
+For Level Three installation, knowledge-source requirements, data schema, and
+commands, read [level_three_agent/README.md](level_three_agent/README.md).
+
+## Level Two installation
 
 Python 3.10 or newer and a CUDA-compatible PyTorch installation are
 recommended.
@@ -34,7 +57,7 @@ pip install -r requirements.txt
 The tested setup used NVIDIA H100 GPUs, BF16, Transformers 5.x, and
 `device_map=auto`.
 
-## Data
+## Level Two data
 
 Authorized datasets can be placed at:
 
@@ -47,7 +70,7 @@ Alternatively, pass the JSONL path as the positional `input` argument or set
 `ANESTRACE_DATA_DIR`. See [data/README.md](data/README.md) for the required
 record fields.
 
-## Single-model inference
+## Level Two single-model inference
 
 Run one Chinese smoke-test item:
 
@@ -70,7 +93,7 @@ python run_inference.py /path/to/Level_two_B5_v2_en.jsonl \
 The default generation mode disables thinking and uses deterministic greedy
 decoding. Use `--enable-thinking` to enable supported model templates.
 
-## Sequential batch inference
+## Level Two sequential batch inference
 
 Model paths are intentionally explicit and may be repeated:
 
@@ -103,7 +126,7 @@ require more KV-cache memory. For example:
 ./scripts/run_batch.sh --model-path /path/to/model -- --batch-size 4
 ```
 
-## Supported model protocols
+## Level Two supported model protocols
 
 The runner reads each local `config.json` and supports:
 
@@ -123,7 +146,7 @@ GPT-OSS MXFP4 inference requires the compatible dependency pair declared in
 instead of falling back to BF16 dequantization. The first load may fetch signed
 MXFP4 kernel artifacts from Hugging Face, so warm the cache before offline use.
 
-## Output
+## Level Two output
 
 Default outputs are:
 
@@ -150,6 +173,14 @@ record for each `qa_id`, so a completed full B5 run contains exactly 500 rows.
 python -m py_compile run_inference.py
 bash -n scripts/run_batch.sh
 python -m unittest discover -s tests -v
+```
+
+Run the independent Level Three tests with:
+
+```bash
+cd level_three_agent
+PYTHONPATH=src python -m pytest
+bash -n scripts/start_vllm_qwen35.sh scripts/run_agent.sh
 ```
 
 ## Clinical-data safety

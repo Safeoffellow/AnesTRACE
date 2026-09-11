@@ -14,3 +14,9 @@ checkpoints/
 data/*
 !data/README.md
 outputs/
+
+# Level Three Agent: protected episodes, local/licensed knowledge, caches, and runs.
+level_three_agent/data/*
+!level_three_agent/data/README.md
+level_three_agent/outputs/
+level_three_agent/local_knowledge_bundles/
