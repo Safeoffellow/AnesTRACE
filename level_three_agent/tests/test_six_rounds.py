@@ -54,7 +54,7 @@ async def test_six_sequential_context_rounds_fit_recursion_limit_24(tmp_path):
                         "severity": "Stable",
                         "key_evidence": ["Vital signs are stable."],
                     },
-                    "expert_recommendation": {
+                    "Specific_intervention": {
                         "treatment_goal": "Maintain stability.",
                         "action_list": [
                             {

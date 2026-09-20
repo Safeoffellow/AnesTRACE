@@ -49,20 +49,20 @@ class DecisionAction(StrictModel):
         return value
 
 
-class ExpertRecommendation(StrictModel):
+class SpecificIntervention(StrictModel):
     treatment_goal: str = Field(min_length=1)
     action_list: list[DecisionAction] = Field(min_length=1, max_length=5)
 
 
 class DecisionOutput(StrictModel):
     state_assessment: StateAssessment
-    expert_recommendation: ExpertRecommendation
+    Specific_intervention: SpecificIntervention
 
     @model_validator(mode="after")
     def stable_state_has_observation_action(self) -> "DecisionOutput":
         if self.state_assessment.severity == "Stable" and not any(
             action.action_type == "Do_Nothing_Observe"
-            for action in self.expert_recommendation.action_list
+            for action in self.Specific_intervention.action_list
         ):
             raise ValueError("Stable state must include Do_Nothing_Observe")
         return self
@@ -84,8 +84,8 @@ class DecisionMemory(StrictModel):
             decision_point=decision_point,
             diagnosis_summary=output.state_assessment.primary_problem,
             severity=output.state_assessment.severity,
-            treatment_goal=output.expert_recommendation.treatment_goal,
-            proposed_actions=output.expert_recommendation.action_list,
+            treatment_goal=output.Specific_intervention.treatment_goal,
+            proposed_actions=output.Specific_intervention.action_list,
         )
 
 

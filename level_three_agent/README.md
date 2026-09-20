@@ -173,6 +173,8 @@ remain visible to the model and do not terminate the Episode.
 
 ## Output
 
+The validated model prediction uses `Specific_intervention` as the canonical key for the recommended intervention. The former `expert_recommendation` key is not accepted by the current schema and is not emitted by new runs.
+
 Each run directory contains:
 
 - \`predictions.jsonl\`: direct input, accessed sections, prediction, and memory;

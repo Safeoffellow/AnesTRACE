@@ -11,7 +11,7 @@ def answer(severity="Moderate", action_type="Diagnostic_Check"):
             "severity": severity,
             "key_evidence": ["MAP is persistently decreasing."],
         },
-        "expert_recommendation": {
+        "Specific_intervention": {
             "treatment_goal": "Restore adequate perfusion.",
             "action_list": [
                 {

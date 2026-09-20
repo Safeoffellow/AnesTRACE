@@ -19,7 +19,7 @@ VALID = {
         "severity": "Moderate",
         "key_evidence": ["MAP is persistently decreasing."],
     },
-    "expert_recommendation": {
+    "Specific_intervention": {
         "treatment_goal": "Restore adequate perfusion.",
         "action_list": [
             {"action_type": "Diagnostic_Check", "decision": "Verify the arterial waveform."}

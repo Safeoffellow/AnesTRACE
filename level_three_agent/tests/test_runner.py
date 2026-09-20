@@ -14,7 +14,7 @@ VALID = {
         "severity": "Mild",
         "key_evidence": ["MAP has mildly decreased."],
     },
-    "expert_recommendation": {
+    "Specific_intervention": {
         "treatment_goal": "Verify the signal and monitor the trend.",
         "action_list": [
             {"action_type": "Diagnostic_Check", "decision": "Verify the arterial waveform."}
