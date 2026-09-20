@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/huangziwei/workspace/AnesBench
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+PYTHON_BIN="${ANESBENCH_PYTHON_BIN:-/home/huangziwei/.conda/envs/anesagent/bin/python}"
+cd "${PROJECT_ROOT}"
 
 gold_path="level_two/Level_two_B5_v3_en_evidence.jsonl"
 
@@ -13,7 +16,7 @@ do
   summary_path="outputs/level_two/${model_name}/level-two-b5-text-only-en.v3.judge_summary.json"
 
   CUDA_VISIBLE_DEVICES=0 \
-  /home/huangziwei/.conda/envs/anesagent/bin/python \
+  "${PYTHON_BIN}" \
     scripts/eval/evaluate_level_two.py \
     --gold "${gold_path}" \
     --predictions "${prediction_path}" \
