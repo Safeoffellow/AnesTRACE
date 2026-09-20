@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 PYTHON_BIN="${ANESBENCH_PYTHON_BIN:-/home/huangziwei/.conda/envs/anesagent/bin/python}"
 cd "${PROJECT_ROOT}"
 
-gold_path="level_two/Level_two_B5_v3_en_evidence.jsonl"
+gold_path="${PROJECT_ROOT}/evaluation_data/gold/Level_two_B5_v3_en_evidence.jsonl"
 
 for model_name in \
   Fleming-R1-7B

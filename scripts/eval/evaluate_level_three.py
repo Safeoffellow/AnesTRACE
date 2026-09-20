@@ -15,9 +15,12 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_GOLD = ROOT / "level_three/Level_three_v3_en_agent.jsonl"
+EVALUATION_DATA_ROOT = ROOT / "evaluation_data"
+DEFAULT_GOLD = EVALUATION_DATA_ROOT / "gold/Level_three_v3_en_agent.jsonl"
 DEFAULT_PRED = ROOT / "outputs/level_three/Qwen3-8B/Qwen3-8B.jsonl"
-DEFAULT_TEMPLATE = ROOT / "data/training_data/sft_data/AnesTRACE-Eval-Data.jsonl"
+DEFAULT_TEMPLATE = EVALUATION_DATA_ROOT / "prompts/AnesTRACE-Eval-Data.jsonl"
+DEFAULT_TURN_SYSTEM_PROMPT = EVALUATION_DATA_ROOT / "prompts/anestrace_eval_turn_system_en.txt"
+DEFAULT_TRAJECTORY_SYSTEM_PROMPT = EVALUATION_DATA_ROOT / "prompts/anestrace_eval_trajectory_system_en.txt"
 DEFAULT_MODEL = ROOT / "../LlamaFactory/outputs/qwen35_9b_lora_dpo_from_merged_lr3e6_1epoch/merged_checkpoint-105"
 PROMPT_VERSION = "anestrace-level3-local-judge.v1"
 EVALUATION_LEVELS = ("turn", "trajectory", "both")
@@ -324,8 +327,13 @@ def run_one(args, pred_path:Path, templates:Tuple[str,str,str], judge:Optional[L
     return len(selected)
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--model',default=str(DEFAULT_MODEL)); ap.add_argument('--gold',default=str(DEFAULT_GOLD)); ap.add_argument('--predictions',default=str(DEFAULT_PRED)); ap.add_argument('--template',default=str(DEFAULT_TEMPLATE)); ap.add_argument('--split'); ap.add_argument('--limit',type=int); ap.add_argument('--batch-size',type=int,default=1); ap.add_argument('--device'); ap.add_argument('--device-map',default='auto'); ap.add_argument('--dtype',choices=['bfloat16','float16','float32'],default='bfloat16'); ap.add_argument('--max-new-tokens',type=int,default=1024); ap.add_argument('--enable-thinking',action='store_true'); ap.add_argument('--disable-thinking',action='store_true'); ap.add_argument('--resume',action='store_true'); ap.add_argument('--overwrite',action='store_true'); ap.add_argument('--dry-run',action='store_true'); ap.add_argument('--agent-metrics-only',action='store_true'); ap.add_argument('--evaluation-level',choices=EVALUATION_LEVELS,default='both',help='Judge scope: turn, trajectory, or both (default: both).'); ap.add_argument('--no-progress',action='store_true'); args=ap.parse_args()
-    templates=load_template(Path(args.template))
+    ap=argparse.ArgumentParser(); ap.add_argument('--model',default=str(DEFAULT_MODEL)); ap.add_argument('--gold',default=str(DEFAULT_GOLD)); ap.add_argument('--predictions',default=str(DEFAULT_PRED)); ap.add_argument('--template',default=str(DEFAULT_TEMPLATE)); ap.add_argument('--turn-system-prompt',default=str(DEFAULT_TURN_SYSTEM_PROMPT)); ap.add_argument('--trajectory-system-prompt',default=str(DEFAULT_TRAJECTORY_SYSTEM_PROMPT)); ap.add_argument('--split'); ap.add_argument('--limit',type=int); ap.add_argument('--batch-size',type=int,default=1); ap.add_argument('--device'); ap.add_argument('--device-map',default='auto'); ap.add_argument('--dtype',choices=['bfloat16','float16','float32'],default='bfloat16'); ap.add_argument('--max-new-tokens',type=int,default=1024); ap.add_argument('--enable-thinking',action='store_true'); ap.add_argument('--disable-thinking',action='store_true'); ap.add_argument('--resume',action='store_true'); ap.add_argument('--overwrite',action='store_true'); ap.add_argument('--dry-run',action='store_true'); ap.add_argument('--agent-metrics-only',action='store_true'); ap.add_argument('--evaluation-level',choices=EVALUATION_LEVELS,default='both',help='Judge scope: turn, trajectory, or both (default: both).'); ap.add_argument('--no-progress',action='store_true'); args=ap.parse_args()
+    templates=list(load_template(Path(args.template)))
+    # Keep the SFT template only for the exact task instructions; system
+    # prompts are loaded from the local evaluation_data bundle.
+    templates[0]=Path(args.turn_system_prompt).read_text(encoding='utf-8').strip()
+    templates[3]=Path(args.trajectory_system_prompt).read_text(encoding='utf-8').strip()
+    templates=tuple(templates)
     paths=discover_predictions(ROOT/'outputs/level_three') if args.predictions=='all' else [Path(args.predictions)]
     if not paths: raise SystemExit('no prediction files found')
     judge=None if args.dry_run or args.agent_metrics_only else LocalJudge(args.model,args.dtype,args.device_map,args.max_new_tokens,args.enable_thinking)

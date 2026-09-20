@@ -21,3 +21,21 @@ Level Three defaults to both Judge scopes. To run only turn-level evaluation:
 ```
 
 The legacy `eval/evaluate_jsonl.py`, Level Two/Three local evaluator paths, and existing evaluation shell commands remain compatibility wrappers.
+## Local evaluation assets
+
+L2/L3 evaluation defaults read gold answers and judge prompts from the local
+`evaluation_data/` directory at the repository root. This directory is ignored
+by Git because it contains benchmark answers and the large SFT prompt template.
+Provision the following files locally before running the evaluators:
+
+- `evaluation_data/gold/Level_two_B5_v2_en_evidence.jsonl`
+- `evaluation_data/gold/Level_two_B5_v2_en_evidence_refined.jsonl`
+- `evaluation_data/gold/Level_two_B5_v3_en_evidence.jsonl`
+- `evaluation_data/gold/Level_three_v3_en_agent.jsonl`
+- `evaluation_data/prompts/anestrace_eval_overall_system_en.txt`
+- `evaluation_data/prompts/anestrace_eval_turn_system_en.txt`
+- `evaluation_data/prompts/anestrace_eval_trajectory_system_en.txt`
+- `evaluation_data/prompts/AnesTRACE-Eval-Data.jsonl`
+
+Use `--gold`, `--template`, or the system-prompt options to override these
+local defaults when evaluating another approved data release.

@@ -30,11 +30,12 @@ DEFAULT_MODEL = Path(
     "/home/huangziwei/workspace/LlamaFactory/outputs/"
     "qwen35_9b_lora_dpo_from_merged_lr3e6_1epoch/merged_checkpoint-105"
 )
-DEFAULT_GOLD = PROJECT_ROOT / "level_two/Level_two_B5_v3_en_evidence.jsonl"
+EVALUATION_DATA_ROOT = PROJECT_ROOT / "evaluation_data"
+DEFAULT_GOLD = EVALUATION_DATA_ROOT / "gold/Level_two_B5_v3_en_evidence.jsonl"
 DEFAULT_PREDICTIONS = (
     PROJECT_ROOT / "outputs/level_two/Qwen3-8B/level-two-b5-text-only-en.jsonl"
 )
-DEFAULT_SYSTEM_PROMPT = PROJECT_ROOT / "prompts/anestrace_eval_overall_system_en.txt"
+DEFAULT_SYSTEM_PROMPT = EVALUATION_DATA_ROOT / "prompts/anestrace_eval_overall_system_en.txt"
 DEFAULT_OUTPUT = None
 DEFAULT_SUMMARY = None
 PROMPT_VERSION = "anestrace-level2-overall-local-judge.v2"

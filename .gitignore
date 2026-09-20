@@ -20,3 +20,5 @@ level_three_agent/data/*
 !level_three_agent/data/README.md
 level_three_agent/outputs/
 level_three_agent/local_knowledge_bundles/
+# Local evaluation gold answers and judge prompt assets; never publish.
+/evaluation_data/
